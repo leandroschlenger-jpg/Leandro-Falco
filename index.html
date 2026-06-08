@@ -450,30 +450,70 @@ function Login({onLogin}) {
 }
 
 /* ══ DASHBOARD ══ */
-function Dashboard({fat}) {
-  const totalRep=fat.reduce((s,f)=>s+f.totalRepasse,0);
-  const nNov=fat.filter(f=>f.status==='novo').length;
+function Dashboard({fat, fechamentos}) {
+  const [periodo,setPeriodo]=useState('mensal');
+  const [mesSel,setMesSel]=useState('atual');
+  // Meses disponíveis para seleção
+  const mesAtualLabel=(()=>{const d=fat[0]?.data||'';const[,m,a]=d.split('/');return m&&a?`${['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(m)]}/${a}`:'Atual';})();
+  const mesesDisp=[{key:'atual',label:mesAtualLabel},...(fechamentos||[]).filter(f=>f.mesKey!=='atual').map(f=>({key:f.mesKey,label:f.mes}))];
+  // Fonte de dados conforme seleção
+  const getD=()=>{
+    if(periodo==='anual'){
+      const all=[];
+      (fechamentos||[]).forEach(f=>{if(f.fat)all.push(...f.fat);});
+      const closedKeys=new Set((fechamentos||[]).map(f=>f.mesKey));
+      if(!closedKeys.has('2026-05'))all.push(...fat);
+      return all;
+    }
+    if(mesSel==='atual')return fat;
+    const fec=(fechamentos||[]).find(f=>f.mesKey===mesSel);
+    return fec?.fat||[];
+  };
+  const d=getD();
+  const labelPeriodo=periodo==='anual'?'Anual (todos os meses)':(mesesDisp.find(m=>m.key===mesSel)?.label||mesAtualLabel);
+  const totalRep=d.reduce((s,f)=>s+f.totalRepasse,0);
+  const nNov=d.filter(f=>f.status==='novo').length;
   const byParc={};
-  fat.forEach(f=>f.parceiros.forEach(p=>{ if(!byParc[p.nome])byParc[p.nome]=0; byParc[p.nome]+=p.repasse; }));
+  d.forEach(f=>f.parceiros.forEach(p=>{ if(!byParc[p.nome])byParc[p.nome]=0; byParc[p.nome]+=p.repasse; }));
   const parcData=Object.entries(byParc).map(([nome,rep])=>({nome,rep})).sort((a,b)=>b.rep-a.rep);
-  const TOTAL_BRUTO=fat.reduce((s,f)=>s+f.bruto,0);
-  const TOTAL_LIQ=fat.reduce((s,f)=>s+f.liq,0);
+  const TOTAL_BRUTO=d.reduce((s,f)=>s+f.bruto,0);
+  const TOTAL_LIQ=d.reduce((s,f)=>s+f.liq,0);
+  // Top 10 projetos: agrega por projeto quando anual
+  const byProj={};
+  d.forEach(f=>{if(!byProj[f.projeto])byProj[f.projeto]={bruto:0,liq:0};byProj[f.projeto].bruto+=f.bruto;byProj[f.projeto].liq+=f.liq;});
+  const top10=Object.entries(byProj).sort((a,b)=>b[1].bruto-a[1].bruto).slice(0,10);
   return (
     <div>
-      <div className="ttl">Dashboard – Maio/2026</div>
-      <div className="sub">pivot.xlsx × Cadastro Parceiros · dados persistidos no navegador</div>
+      <div className="flex jb ac mb3" style={{flexWrap:'wrap',gap:10}}>
+        <div>
+          <div className="ttl">Dashboard – {labelPeriodo}</div>
+          <div className="sub">pivot.xlsx × Cadastro Parceiros · dados persistidos no navegador</div>
+        </div>
+        <div className="flex ac" style={{gap:8}}>
+          <div style={{display:'flex',background:'#0f172a',borderRadius:8,border:'1px solid #334155',overflow:'hidden'}}>
+            {[['mensal','📅 Mensal'],['anual','📆 Anual']].map(([v,l])=>(
+              <button key={v} style={{padding:'7px 16px',fontSize:12,fontWeight:600,cursor:'pointer',border:'none',background:periodo===v?'#6366f1':'transparent',color:periodo===v?'#fff':'#94a3b8',transition:'all .15s'}} onClick={()=>setPeriodo(v)}>{l}</button>
+            ))}
+          </div>
+          {periodo==='mensal'&&mesesDisp.length>1&&(
+            <select value={mesSel} onChange={e=>setMesSel(e.target.value)} style={{width:'auto',minWidth:120,padding:'6px 10px',fontSize:12}}>
+              {mesesDisp.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
       <div className="g5 mb6">
-        {[{l:'Receita Bruta',v:fmt(TOTAL_BRUTO),c:'ci'},{l:'Retenções',v:fmt(fat.reduce((s,f)=>s+f.ret,0)),c:'cr'},{l:'Receita Líquida',v:fmt(TOTAL_LIQ),c:'cg'},{l:'Total Repasses',v:fmt(totalRep),c:'ca'},{l:'Lucro',v:fmt(TOTAL_LIQ-totalRep),c:'cb'}]
+        {[{l:'Receita Bruta',v:fmt(TOTAL_BRUTO),c:'ci'},{l:'Retenções',v:fmt(d.reduce((s,f)=>s+f.ret,0)),c:'cr'},{l:'Receita Líquida',v:fmt(TOTAL_LIQ),c:'cg'},{l:'Total Repasses',v:fmt(totalRep),c:'ca'},{l:'Lucro',v:fmt(TOTAL_LIQ-totalRep),c:'cb'}]
           .map((c,i)=>(<div key={i} className="card card-p"><div className="kpi-label">{c.l}</div><div className={`kpi-value ${c.c}`}>{c.v}</div></div>))}
       </div>
       <div className="g3 mb4">
-        {[{l:'✓ Com repasse',v:fat.filter(f=>f.status==='historico').length,c:'cg',d:'Parceiros definidos'},{l:'➖ Sem repasse',v:fat.filter(f=>f.status==='sem_parceiro').length,c:'cgr',d:'Cadastrado N/A'},{l:'⚠ Não cadastrado',v:nNov,c:'ca',d:'Revisão manual necessária'}]
+        {[{l:'✓ Com repasse',v:d.filter(f=>f.status==='historico').length,c:'cg',d:'Parceiros definidos'},{l:'➖ Sem repasse',v:d.filter(f=>f.status==='sem_parceiro').length,c:'cgr',d:'Cadastrado N/A'},{l:'⚠ Não cadastrado',v:nNov,c:'ca',d:'Revisão manual necessária'}]
           .map((c,i)=>(<div key={i} className="card card-p tc"><div className="kpi-label">{c.l}</div><div className={`kpi-value ${c.c}`}>{c.v} projetos</div><div style={{color:'#64748b',fontSize:11,marginTop:3}}>{c.d}</div></div>))}
       </div>
       <div className="g2">
         <div className="card card-p">
           <div className="fw6 mb4" style={{fontSize:13}}>Top 10 Projetos</div>
-          <BarChart labels={fat.slice(0,10).map(f=>f.projeto)} datasets={[{label:'Bruta',data:fat.slice(0,10).map(f=>f.bruto),backgroundColor:'rgba(99,102,241,.7)'},{label:'Líquida',data:fat.slice(0,10).map(f=>f.liq),backgroundColor:'rgba(16,185,129,.65)'}]}/>
+          <BarChart labels={top10.map(([p])=>p)} datasets={[{label:'Bruta',data:top10.map(([,v])=>v.bruto),backgroundColor:'rgba(99,102,241,.7)'},{label:'Líquida',data:top10.map(([,v])=>v.liq),backgroundColor:'rgba(16,185,129,.65)'}]}/>
         </div>
         <div className="card card-p">
           <div className="fw6 mb4" style={{fontSize:13}}>Repasse por Parceiro</div>
@@ -1413,47 +1453,4 @@ function App() {
     if (!saved) return PARCEIROS_SEED;
     // Garante que parceiros do seed existam, mas sem sobrescrever os do usuário
     const nomesSalvos = new Set(saved.map(p=>p.nome));
-    const faltando = PARCEIROS_SEED.filter(p=>!nomesSalvos.has(p.nome));
-    return faltando.length > 0 ? [...saved, ...faltando] : saved;
-  });
-  const [cadastro,setCadastroRaw]             = useState(()=>LS.get('pt_cadastro', CADASTRO_SEED));
-  const [fat,setFatRaw]                       = useState(()=>LS.get('pt_fat_2026_05', buildFatFromCad(FAT_RAW_SEED, CADASTRO_SEED)));
-  const [fechamentos,setFechamentosRaw]       = useState(()=>LS.get('pt_fechamentos', []));
-
-  // Wrappers que salvam automaticamente
-  const setTodosParceiros = useCallback(v => { setTodosParceirosRaw(v); }, []);
-  const setCadastro       = useCallback(v => { setCadastroRaw(v); }, []);
-  const setFat            = useCallback(v => { setFatRaw(v); }, []);
-  const setFechamentos    = useCallback(v => { setFechamentosRaw(v); }, []);
-
-  // Persiste tudo no localStorage sempre que mudar
-  useEffect(()=>{ LS.set('pt_parceiros', todosParceiros); setSavedAt(now()); },[todosParceiros]);
-  useEffect(()=>{ LS.set('pt_cadastro', cadastro); setSavedAt(now()); },[cadastro]);
-  useEffect(()=>{ LS.set('pt_fat_2026_05', fat); setSavedAt(now()); },[fat]);
-  useEffect(()=>{ LS.set('pt_fechamentos', fechamentos); setSavedAt(now()); },[fechamentos]);
-
-  if(!loggedIn) return <Login onLogin={()=>setLoggedIn(true)}/>;
-
-  const nNov=fat.filter(f=>f.status==='novo').length;
-  const pages={
-    dashboard:      <Dashboard fat={fat}/>,
-    importar:       <Importar setPage={setPage} fat={fat} setFat={setFat} cadastro={cadastro}/>,
-    conferencia:    <Conferencia fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} setPage={setPage}/>,
-    'sem-parceiro': <SemParceiro fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro}/>,
-    parceiros:      <Parceiros todosParceiros={todosParceiros} setTodosParceiros={setTodosParceiros} cadastro={cadastro} setCadastro={setCadastro} fat={fat}/>,
-    fechamento:     <Fechamento fat={fat} fechamentos={fechamentos} setFechamentos={setFechamentos} setFat={setFat}/>,
-    relatorios:     <Relatorios fat={fat}/>,
-  };
-
-  return (
-    <div style={{display:'flex'}}>
-      <Sidebar page={page} setPage={setPage} setLoggedIn={setLoggedIn} nNov={nNov} savedAt={savedAt}/>
-      <div className="main">{pages[page]||<Dashboard fat={fat}/>}</div>
-    </div>
-  );
-}
-
-ReactDOM.render(<App/>,document.getElementById('root'));
-</script>
-</body>
-</html>
+    const faltando = PARCEIROS_SEED.filter(p=>!nomesSalvos.has(p.nome
