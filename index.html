@@ -1453,4 +1453,50 @@ function App() {
     if (!saved) return PARCEIROS_SEED;
     // Garante que parceiros do seed existam, mas sem sobrescrever os do usuário
     const nomesSalvos = new Set(saved.map(p=>p.nome));
-    const faltando = PARCEIROS_SEED.filter(p=>!nomesSalvos.has(p.nome
+    const faltando = PARCEIROS_SEED.filter(p=>!nomesSalvos.has(p.nome));
+ return [...saved,...faltando];
+ });
+ const [cadastro,setCadastroRaw]=useState(()=>{
+ const saved=LS.get('pt_cadastro',null);
+ if(!saved) return CADASTRO_SEED;
+ return {...CADASTRO_SEED,...saved};
+ });
+ const [fat,setFatRaw]=useState(()=>{
+ const saved=LS.get('pt_fat_2026_05',null);
+ if(saved)return saved;
+ return buildFatFromCad(FAT_RAW_SEED,CADASTRO_SEED);
+ });
+ const [fechamentos,setFechamentosRaw]=useState(()=>LS.get('pt_fechamentos',[]));
+
+ const setTodosParceiros=v=>{setTodosParceirosRaw(p=>{const next=typeof v==='function'?v(p):v;LS.set('pt_parceiros',next);return next;});};
+ const setCadastro=v=>{setCadastroRaw(p=>{const next=typeof v==='function'?v(p):v;LS.set('pt_cadastro',next);return next;});};
+ const setFat=v=>{setFatRaw(p=>{const next=typeof v==='function'?v(p):v;LS.set('pt_fat_2026_05',next);setSavedAt(now());return next;});};
+ const setFechamentos=v=>{setFechamentosRaw(p=>{const next=typeof v==='function'?v(p):v;LS.set('pt_fechamentos',next);return next;});};
+
+ const nNov=fat.filter(f=>f.status==='novo').length;
+
+ const pages={
+ dashboard:<Dashboard fat={fat} fechamentos={fechamentos}/>,
+ importar:<Importar setPage={setPage} fat={fat} setFat={setFat} cadastro={cadastro}/>,
+ conferencia:<Conferencia fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} setPage={setPage}/>,
+ 'sem-parceiro':<SemParceiro fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro}/>,
+ parceiros:<Parceiros todosParceiros={todosParceiros} setTodosParceiros={setTodosParceiros} cadastro={cadastro} setCadastro={setCadastro} fat={fat}/>,
+ fechamento:<Fechamento fat={fat} fechamentos={fechamentos} setFechamentos={setFechamentos} setFat={setFat}/>,
+ relatorios:<Relatorios fat={fat}/>,
+ };
+
+ if(!loggedIn)return <Login onLogin={()=>setLoggedIn(true)}/>;
+ return(
+ <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
+ <Sidebar page={page} setPage={setPage} setLoggedIn={setLoggedIn} nNov={nNov} savedAt={savedAt}/>
+ <main style={{flex:1,overflowY:'auto',padding:'24px 28px',background:'#0f172a'}}>
+ {pages[page]}
+ </main>
+ </div>
+ );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
