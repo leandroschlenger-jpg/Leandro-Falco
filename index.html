@@ -1341,11 +1341,11 @@ function Parceiros({todosParceiros,setTodosParceiros,cadastro,setCadastro,fat}) 
 }
 
 /* ══ FECHAMENTO ══ */
-function Fechamento({fat: fatProp,fechamentos,setFechamentos,setFat,mesAtivo,setMesAtivo,mesAberto,getFatForMes}) {
+function Fechamento({fat: fatProp,fechamentos,setFechamentos,setFat,mesAtivo,setMesAtivo,mesAberto,setMesAberto,getFatForMes}) {
   const mesKey=mesAtivo;
   const MES=getMesLabel(mesAtivo);
   const isView=mesAtivo!==mesAberto?.key;
-  const activeFat=isView?(fechamentos.find(f=>f.mesKey===mesAtivo)?.fat||[]):fat;
+  const activeFat=isView?(fechamentos.find(f=>f.mesKey===mesAtivo)?.fat||[]):fatProp;
   const fat2=activeFat;
   const fechamentoAtual=fechamentos.find(f=>f.mesKey===mesKey);
   const [confirmModal,setConfirmModal]=useState(false);
@@ -1371,6 +1371,16 @@ function Fechamento({fat: fatProp,fechamentos,setFechamentos,setFat,mesAtivo,set
 
   const restaurar=()=>{
     if(fechamentoAtual?.fat) setFat(fechamentoAtual.fat);
+  };
+
+  const avancarMes=()=>{
+    const [a,m]=mesAberto.key.split('-').map(Number);
+    const nm=m===12?1:m+1;
+    const na=m===12?a+1:a;
+    const nk=`${na}-${String(nm).padStart(2,'0')}`;
+    const nl=getMesLabel(nk);
+    if(setMesAberto) setMesAberto({key:nk,label:nl});
+    setMesAtivo(nk);
   };
 
   return (
@@ -1415,9 +1425,17 @@ function Fechamento({fat: fatProp,fechamentos,setFechamentos,setFat,mesAtivo,set
 
       {!fechamentoAtual&&!isView&&(
         <div className="flex" style={{gap:10}}>
-          <button className="btn btn-ok" style={{fontSize:14}} onClick={()=>setConfirmModal(true)}>🔒 Encerrar Fechamento de {MES}</button>
-          <button className="btn btn-s">📊 Exportar Excel</button>
-          <button className="btn btn-s">📄 Exportar PDF</button>
+          <button className="btn btn-ok" style={{fontSize:14}} onClick={()=>setConfirmModal(true)}>Encerrar Fechamento de {MES}</button>
+          <button className="btn btn-s">Exportar Excel</button>
+        </div>
+      )}
+      {fechamentoAtual?.status==='fechado'&&!isView&&(
+        <div className="card card-p flex ac mt4" style={{gap:12,borderColor:'#6366f1',borderWidth:2}}>
+          <div style={{flex:1}}>
+            <div className="fw6" style={{fontSize:13,color:'#e2e8f0'}}>{MES} encerrado com sucesso</div>
+            <div style={{fontSize:12,color:'#94a3b8',marginTop:2}}>Inicie a apuração do proximo mes importando o novo arquivo</div>
+          </div>
+          <button className="btn btn-p" style={{fontSize:13,whiteSpace:'nowrap'}} onClick={avancarMes}>Iniciar {(()=>{const[a,m]=mesAberto.key.split('-').map(Number);const nm=m===12?1:m+1;const na=m===12?a+1:a;return getMesLabel(`${na}-${String(nm).padStart(2,'0')}`);})()}</button>
         </div>
       )}
 
@@ -1563,7 +1581,7 @@ function App() {
  conferencia:<Conferencia fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} setPage={setPage} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  'sem-parceiro':<SemParceiro fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  parceiros:<Parceiros todosParceiros={todosParceiros} setTodosParceiros={setTodosParceiros} cadastro={cadastro} setCadastro={setCadastro} fat={fat}/>,
- fechamento:<Fechamento fat={fat} fechamentos={fechamentos} setFechamentos={setFechamentos} setFat={setFat} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} getFatForMes={getFatForMes}/>,
+ fechamento:<Fechamento fat={fat} fechamentos={fechamentos} setFechamentos={setFechamentos} setFat={setFat} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} setMesAberto={setMesAberto} getFatForMes={getFatForMes}/>,
  relatorios:<Relatorios fat={fat} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  };
 
