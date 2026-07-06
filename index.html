@@ -824,8 +824,8 @@ function exportarCSV(rows, nome='conferencia_maio2026') {
 }
 
 /* ══ CONFERÊNCIA ══ */
-function Conferencia({fat,setFat,todosParceiros,setCadastro,setPage,mesAtivo,setMesAtivo,mesAberto,fechamentos,getFatForMes}) {
-  const activeFat = getFatForMes ? getFatForMes(mesAtivo) : fat;
+function Conferencia({fat: fatProp,setFat,todosParceiros,setCadastro,setPage,mesAtivo,setMesAtivo,mesAberto,fechamentos,getFatForMes}) {
+  const activeFat = getFatForMes ? getFatForMes(mesAtivo) : fatProp;
   const isView = mesAtivo !== mesAberto?.key;
   const setActiveFat = isView ? null : setFat;
   const fat=activeFat;
@@ -1580,5 +1580,4 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
-</body>
-</html>
+</
