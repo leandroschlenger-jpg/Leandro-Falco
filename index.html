@@ -570,7 +570,7 @@ function Dashboard({fat, fechamentos, setPage}) {
 }
 
 /* ══ IMPORTAR ══ */
-function Importar({setPage, fat, setFat, setFatAndMes, cadastro, mesAberto, setMesAberto, setMesAtivo}) {
+function Importar({setPage, fat, setFat, setFatAndMes, cadastro, fechamentos, mesAberto, setMesAberto, setMesAtivo}) {
   const [step,setStep]         = useState(0);
   const [fn,setFn]             = useState('');
   const [prog,setProg]         = useState(0);
@@ -605,7 +605,7 @@ function Importar({setPage, fat, setFat, setFatAndMes, cadastro, mesAberto, setM
     const reader=new FileReader();
     reader.onload=(evt)=>{
       try{
-        const wb=XLSX.read(evt.target.result,{type:'binary'});
+        const wb=XLSX.read(evt.target.result,{type:'binary',cellDates:true});
         const sn=wb.SheetNames.find(n=>/receb|fat|plan/i.test(n))||wb.SheetNames[0];
         const ws=wb.Sheets[sn];
         const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
@@ -644,10 +644,12 @@ function Importar({setPage, fat, setFat, setFatAndMes, cadastro, mesAberto, setM
         };
         const fmtData=(v)=>{
           if(!v)return '';
+          if(v instanceof Date){const d=v.getDate().toString().padStart(2,'0');const mo=(v.getMonth()+1).toString().padStart(2,'0');return `${d}/${mo}/${v.getFullYear()}`;}
+          if(typeof v==='number'){const dt=new Date(Math.round((v-25569)*86400*1000));return `${dt.getUTCDate().toString().padStart(2,'0')}/${(dt.getUTCMonth()+1).toString().padStart(2,'0')}/${dt.getUTCFullYear()}`;}
           const s=String(v);
           const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
           if(m)return `${m[3]}/${m[2]}/${m[1]}`;
-          return s.split(' ')[0];
+          return s.split('T')[0].split(' ')[0];
         };
         const newFat=[];
         for(const row of fileRows){
@@ -664,7 +666,13 @@ function Importar({setPage, fat, setFat, setFatAndMes, cadastro, mesAberto, setM
             projeto.toUpperCase().includes(k.toUpperCase())||
             k.toUpperCase().includes(projeto.toUpperCase())
           );
-          const parceirosConfig=projKey&&Array.isArray(cadastro[projKey])?cadastro[projKey]:[];
+          let parceirosConfig=projKey&&Array.isArray(cadastro[projKey])?cadastro[projKey]:[];
+          if(parceirosConfig.length===0&&fechamentos){
+            for(const fc of [...fechamentos].reverse()){
+              const prev=(fc.fat||[]).find(e=>e.projeto?.toUpperCase()===projeto.toUpperCase()&&(e.parceiros||[]).length>0);
+              if(prev){parceirosConfig=prev.parceiros.map(p=>({nome:p.nome,tipo:p.tipo||'pct',pct:p.pct||0,incRetidos:!!p.incRetidos,desTrib:!!p.desTrib}));break;}
+            }
+          }
           const parceiros=parceirosConfig.map(pc=>{
             const base=pc.incRetidos?bruto:liq;
             const bc=pc.desTrib?r2(base*(1-TRIB)):base;
@@ -980,7 +988,7 @@ function Conferencia({fat: fatProp,setFat,todosParceiros,setCadastro,setPage,mes
     <div>
       <div className="ttl">Conferência de Repasses</div>
       <div className="sub" style={{display:'flex',alignItems:'center',gap:16}}>
-        <span>Maio/2026 · 39 recebimentos individuais</span>
+        <span>{getMesLabel(mesAtivo)} · {fat.length} recebimentos individuais</span>
         <span style={{background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.25)',borderRadius:8,padding:'2px 10px',fontSize:12,color:'#10b981',fontWeight:600}}>
           ✓ {fat.filter(f=>f.conferido).length} / {fat.length} conferidos
         </span>
@@ -1408,7 +1416,7 @@ function Parceiros({todosParceiros,setTodosParceiros,cadastro,setCadastro,fat}) 
 }
 
 /* ══ FECHAMENTO ══ */
-function Fechamento({fat: fatProp,fechamentos,setFechamentos,setFat,mesAtivo,setMesAtivo,mesAberto,setMesAberto,getFatForMes}) {
+function Fechamento({fat: fatProp,fechamentos,setFechamentos,setFat,mesAtivo,setMesAtivo,mesAberto,setMesAberto,getFatForMes,cadastro,setCadastro}) {
   const mesKey=mesAtivo;
   const MES=getMesLabel(mesAtivo);
   const isView=mesAtivo!==mesAberto?.key;
@@ -1429,6 +1437,18 @@ function Fechamento({fat: fatProp,fechamentos,setFechamentos,setFat,mesAtivo,set
   const fechar=()=>{
     const snapshot={mesKey,mes:MES,dataFechamento:now(),status:'fechado',fat:JSON.parse(JSON.stringify(fat)),totalBruto:TOTAL_BRUTO,totalLiq:TOTAL_LIQ,totalRep,parcRows};
     setFechamentos(fs=>[...fs.filter(f=>f.mesKey!==mesKey),snapshot]);
+    if(setCadastro){
+      const novos={};
+      fat.forEach(f=>{
+        if((f.parceiros||[]).length>0){
+          const k=Object.keys(cadastro||{}).find(c=>c.toUpperCase()===f.projeto.toUpperCase());
+          if(!k||(cadastro[k]||[]).length===0){
+            novos[f.projeto]=f.parceiros.map(({nome,tipo,pct,incRetidos,desTrib})=>({nome,tipo:tipo||'pct',pct:pct||0,incRetidos:!!incRetidos,desTrib:!!desTrib}));
+          }
+        }
+      });
+      if(Object.keys(novos).length>0) setCadastro(c=>({...c,...novos}));
+    }
     setConfirmModal(false);
   };
 
@@ -1645,11 +1665,11 @@ function App() {
 
  const pages={
  dashboard:<Dashboard fat={fat} fechamentos={fechamentos} setPage={setPage}/>,
- importar:<Importar setPage={setPage} fat={fat} setFat={setFat} setFatAndMes={setFatAndMes} cadastro={cadastro} mesAberto={mesAberto} setMesAberto={setMesAberto} setMesAtivo={setMesAtivo}/>,
+ importar:<Importar setPage={setPage} fat={fat} setFat={setFat} setFatAndMes={setFatAndMes} cadastro={cadastro} fechamentos={fechamentos} mesAberto={mesAberto} setMesAberto={setMesAberto} setMesAtivo={setMesAtivo}/>,
  conferencia:<Conferencia fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} setPage={setPage} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  'sem-parceiro':<SemParceiro fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  parceiros:<Parceiros todosParceiros={todosParceiros} setTodosParceiros={setTodosParceiros} cadastro={cadastro} setCadastro={setCadastro} fat={fat}/>,
- fechamento:<Fechamento fat={fat} fechamentos={fechamentos} setFechamentos={setFechamentos} setFat={setFat} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} setMesAberto={setMesAberto} getFatForMes={getFatForMes}/>,
+ fechamento:<Fechamento fat={fat} fechamentos={fechamentos} setFechamentos={setFechamentos} setFat={setFat} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} setMesAberto={setMesAberto} getFatForMes={getFatForMes} cadastro={cadastro} setCadastro={setCadastro}/>,
  relatorios:<Relatorios fat={fat} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  };
 
@@ -1664,6 +1684,4 @@ function App() {
  );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-</script>
-</
+ReactDOM.createRoot(document.getElementById('root')).rend
