@@ -1564,4 +1564,21 @@ function App() {
  'sem-parceiro':<SemParceiro fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  parceiros:<Parceiros todosParceiros={todosParceiros} setTodosParceiros={setTodosParceiros} cadastro={cadastro} setCadastro={setCadastro} fat={fat}/>,
  fechamento:<Fechamento fat={fat} fechamentos={fechamentos} setFechamentos={setFechamentos} setFat={setFat} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} getFatForMes={getFatForMes}/>,
- relat
+ relatorios:<Relatorios fat={fat} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
+ };
+
+ if(!loggedIn)return <Login onLogin={()=>setLoggedIn(true)}/>;
+ return(
+ <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
+ <Sidebar page={page} setPage={setPage} setLoggedIn={setLoggedIn} nNov={nNov} savedAt={savedAt}/>
+ <main style={{marginLeft:244,overflowY:'auto',minHeight:'100vh',padding:'24px 28px',background:'#0f172a'}}>
+ {pages[page]}
+ </main>
+ </div>
+ );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
