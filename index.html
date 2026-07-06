@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#0f172a;font-family:'Segoe UI',sans-serif;color:#e2e8f0;min-height:100vh;}
@@ -572,9 +573,11 @@ function Dashboard({fat, fechamentos, setPage}) {
 function Importar({setPage, fat, setFat, cadastro, mesAberto, setMesAberto, setMesAtivo}) {
   const [step,setStep]         = useState(0);
   const [fn,setFn]             = useState('');
+  const [fileObj,setFileObj]   = useState(null);
   const [prog,setProg]         = useState(0);
   const [msg,setMsg]           = useState('');
   const [novoMes,setNovoMes]   = useState('');
+  const [nResult,setNResult]   = useState(null);
   const [confirmLimpar,setConfirmLimpar] = useState(false);
 
   // Detecta se já há dados importados
@@ -594,13 +597,82 @@ function Importar({setPage, fat, setFat, cadastro, mesAberto, setMesAberto, setM
     if(m){const mm=m[1]||m[4],aa=m[2]||m[3];if(mm&&aa&&+mm>=1&&+mm<=12){const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];return {key:`${aa}-${mm.padStart(2,'0')}`,label:`${meses[+mm-1]}/${aa}`};}}
     return null;
   };
-  const handleFile = e => { const f=e.target?.files?.[0]||e.dataTransfer?.files?.[0]; if(f){setFn(f.name);const det=detectMes(f.name);if(det)setNovoMes(det.key);setStep(1);} };
+  const handleFile = e => { const f=e.target?.files?.[0]||e.dataTransfer?.files?.[0]; if(f){setFn(f.name);setFileObj(f);const det=detectMes(f.name);if(det)setNovoMes(det.key);setStep(1);} };
 
   const processar = () => {
-    setStep(2);
-    const msgs=['Lendo arquivo — 345 linhas...','Filtrando mês de referência...','Agrupando: 39 recebimentos...','Cruzando com Cadastro de Parceiros...','Calculando repasses por parceiro...','Concluído!'];
-    let p=0,i=0;
-    const iv=setInterval(()=>{ p+=17;setProg(Math.min(p,100));setMsg(msgs[Math.min(i++,5)]); if(p>=100){clearInterval(iv);setTimeout(()=>setStep(3),400);} },500);
+    if(!fileObj){setMsg('Nenhum arquivo selecionado.');return;}
+    if(typeof XLSX==='undefined'){setMsg('Biblioteca XLSX nao carregada. Recarregue a pagina.');return;}
+    setStep(2);setProg(10);setMsg('Lendo arquivo...');
+    const reader=new FileReader();
+    reader.onload=(evt)=>{
+      try{
+        const wb=XLSX.read(evt.target.result,{type:'binary'});
+        setProg(30);setMsg('Identificando aba...');
+        const sn=wb.SheetNames.find(n=>/receb|fat|plan/i.test(n))||wb.SheetNames[0];
+        const ws=wb.Sheets[sn];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+        setProg(50);setMsg('Mapeando colunas...');
+        let hi=-1,hdrs=[];
+        for(let i=0;i<Math.min(15,rows.length);i++){
+          const r=rows[i].map(c=>String(c||'').toLowerCase().trim());
+          if(r.some(c=>c==='projeto'||c.includes('valor recebido')||c.includes('cliente'))){hi=i;hdrs=r;break;}
+        }
+        if(hi<0){setMsg('Cabecalho nao encontrado. Verifique o layout do arquivo.');setStep(1);return;}
+        const ci=(...kw)=>hdrs.findIndex(h=>kw.some(k=>h.includes(k)));
+        const iProj=ci('projeto');
+        const iCli=ci('cliente','nome fantasia');
+        const iValor=ci('valor recebido','valor');
+        const iData=ci('data');
+        const iNF=ci('nf','nota');
+        const iSit=ci('situa');
+        setProg(70);setMsg('Calculando repasses...');
+        const newFat=[];
+        for(let i=hi+1;i<rows.length;i++){
+          const row=rows[i];
+          const projeto=String(row[iProj]||'').trim();
+          const rawVal=String(row[iValor]||'0').replace(/[R$\s.]/g,'').replace(',','.');
+          const liq=parseFloat(rawVal)||0;
+          if(!projeto||liq<=0)continue;
+          const sit=iSit>=0?String(row[iSit]||'').toLowerCase().trim():'';
+          if(sit==='cancelado'||sit==='estornado')continue;
+          const cliente=iCli>=0?String(row[iCli]||'').trim():'';
+          const data=iData>=0?String(row[iData]||'').trim():'';
+          const nf=iNF>=0?String(row[iNF]||'').trim():'';
+          const bruto=r2(liq/(1-RETIDOS));
+          const ret=r2(bruto-liq);
+          const projKey=Object.keys(cadastro).find(k=>
+            k.toUpperCase().trim()===projeto.toUpperCase()||
+            projeto.toUpperCase().includes(k.toUpperCase())||
+            k.toUpperCase().includes(projeto.toUpperCase())
+          );
+          const parceirosConfig=projKey&&Array.isArray(cadastro[projKey])?cadastro[projKey]:[];
+          const parceiros=parceirosConfig.map(pc=>{
+            const base=pc.incRetidos?bruto:liq;
+            const bc=pc.desTrib?r2(base*(1-TRIB)):base;
+            return{nome:pc.nome,tipo:pc.tipo||'pct',pct:pc.pct||0,incRetidos:!!pc.incRetidos,desTrib:!!pc.desTrib,repasse:r2(bc*(pc.pct||0))};
+          });
+          const totalRepasse=r2(parceiros.reduce((s,p)=>s+p.repasse,0));
+          const status=parceiros.length>0?'historico':(projKey?'na':'novo');
+          newFat.push({id:uid(),data,projeto,cliente,nf,bruto,liq,ret,parceiros,totalRepasse,status,conferido:false});
+        }
+        setProg(95);setMsg('Atualizando base...');
+        const mk=novoMes||mesAberto?.key||'2026-06';
+        if(novoMes&&setMesAberto)setMesAberto({key:mk,label:getMesLabel(mk)});
+        if(setMesAtivo)setMesAtivo(mk);
+        setFat(newFat);
+        setNResult({
+          total:newFat.length,
+          comRepasse:newFat.filter(f=>f.status==='historico').length,
+          na:newFat.filter(f=>f.status==='na').length,
+          novo:newFat.filter(f=>f.status==='novo').length,
+          totalRep:r2(newFat.reduce((s,f)=>s+f.totalRepasse,0)),
+          mk
+        });
+        setProg(100);
+        setTimeout(()=>setStep(3),400);
+      }catch(err){setMsg('Erro: '+err.message);setStep(1);}
+    };
+    reader.readAsBinaryString(fileObj);
   };
 
   const limparEIniciar = () => {
@@ -745,23 +817,23 @@ function Importar({setPage, fat, setFat, cadastro, mesAberto, setMesAberto, setM
           <div style={{color:'#6366f1',fontWeight:700,marginTop:8}}>{prog}%</div>
         </div>
       )}
-      {step===3&&(
+      {step===3&&nResult&&(
         <div>
           <div className="card card-p mb4" style={{borderColor:'#10b981'}}>
-            <div style={{color:'#10b981',fontWeight:700,fontSize:16,marginBottom:10}}>✅ Importação concluída</div>
+            <div style={{color:'#10b981',fontWeight:700,fontSize:16,marginBottom:10}}>Importacao concluida — {getMesLabel(nResult.mk||mesAberto?.key)}</div>
             <div className="g4">
-              {[{l:'Projetos',v:'30',c:'ci'},{l:'Com repasse',v:'8',c:'cg'},{l:'N/A',v:'14',c:'cgr'},{l:'⚠ Não cad.',v:'8',c:'ca'}].map((c,i)=>(
+              {[{l:'Projetos',v:nResult.total,c:'ci'},{l:'Com repasse',v:nResult.comRepasse,c:'cg'},{l:'N/A',v:nResult.na,c:'cgr'},{l:'Nao cad.',v:nResult.novo,c:'ca'}].map((c,i)=>(
                 <div key={i} className="tc"><div style={{fontSize:22,fontWeight:700}} className={c.c}>{c.v}</div><div style={{color:'#64748b',fontSize:12}}>{c.l}</div></div>
               ))}
             </div>
           </div>
           <div className="aibox">
-            <div className="ait">🤖 Resumo</div>
-            <div className="aitxt">Repasses calculados: <strong style={{color:'#10b981'}}>R$ 59.058,87</strong> · 8 projetos aguardam classificação manual.</div>
+            <div className="ait">Resumo</div>
+            <div className="aitxt">Repasses calculados: <strong style={{color:'#10b981'}}>{fmt(nResult.totalRep)}</strong>{nResult.novo>0&&` · ${nResult.novo} projeto(s) aguardam classificacao manual.`}</div>
           </div>
           <div className="flex" style={{gap:10}}>
-            <button className="btn btn-p" onClick={()=>setPage('conferencia')}>Ver Conferência →</button>
-            <button className="btn btn-s" onClick={()=>setPage('sem-parceiro')}>Não Cadastrados ⚠️</button>
+            <button className="btn btn-p" onClick={()=>{if(setMesAtivo&&nResult.mk)setMesAtivo(nResult.mk);setPage('conferencia');}}>Ver Conferencia</button>
+            {nResult.novo>0&&<button className="btn btn-s" onClick={()=>{if(setMesAtivo&&nResult.mk)setMesAtivo(nResult.mk);setPage('sem-parceiro');}}>Nao Cadastrados ({nResult.novo})</button>}
           </div>
         </div>
       )}
