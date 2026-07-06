@@ -1016,8 +1016,8 @@ function Conferencia({fat: fatProp,setFat,todosParceiros,setCadastro,setPage,mes
 }
 
 /* ══ SEM PARCEIRO ══ */
-function SemParceiro({fat,setFat,todosParceiros,setCadastro,mesAtivo,setMesAtivo,mesAberto,fechamentos,getFatForMes}) {
-  const activeFat = getFatForMes ? getFatForMes(mesAtivo) : fat;
+function SemParceiro({fat: fatProp,setFat,todosParceiros,setCadastro,mesAtivo,setMesAtivo,mesAberto,fechamentos,getFatForMes}) {
+  const activeFat = getFatForMes ? getFatForMes(mesAtivo) : fatProp;
   const isView = mesAtivo !== mesAberto?.key;
   const [tab,setTab]           = useState('novo');
   const [modal,setModal]       = useState(null);
@@ -1341,7 +1341,7 @@ function Parceiros({todosParceiros,setTodosParceiros,cadastro,setCadastro,fat}) 
 }
 
 /* ══ FECHAMENTO ══ */
-function Fechamento({fat,fechamentos,setFechamentos,setFat,mesAtivo,setMesAtivo,mesAberto,getFatForMes}) {
+function Fechamento({fat: fatProp,fechamentos,setFechamentos,setFat,mesAtivo,setMesAtivo,mesAberto,getFatForMes}) {
   const mesKey=mesAtivo;
   const MES=getMesLabel(mesAtivo);
   const isView=mesAtivo!==mesAberto?.key;
@@ -1455,8 +1455,8 @@ function Fechamento({fat,fechamentos,setFechamentos,setFat,mesAtivo,setMesAtivo,
 }
 
 /* ══ RELATÓRIOS ══ */
-function Relatorios({fat,mesAtivo,setMesAtivo,mesAberto,fechamentos,getFatForMes}) {
-  const activeFat = getFatForMes ? getFatForMes(mesAtivo) : fat;
+function Relatorios({fat: fatProp,mesAtivo,setMesAtivo,mesAberto,fechamentos,getFatForMes}) {
+  const activeFat = getFatForMes ? getFatForMes(mesAtivo) : fatProp;
   const fat2 = activeFat;
   const [tab,setTab]=useState('projetos');
   const [busca,setBusca]=useState('');
