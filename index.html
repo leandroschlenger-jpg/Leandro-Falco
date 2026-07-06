@@ -570,74 +570,93 @@ function Dashboard({fat, fechamentos, setPage}) {
 }
 
 /* ══ IMPORTAR ══ */
-function Importar({setPage, fat, setFat, cadastro, mesAberto, setMesAberto, setMesAtivo}) {
+function Importar({setPage, fat, setFat, setFatAndMes, cadastro, mesAberto, setMesAberto, setMesAtivo}) {
   const [step,setStep]         = useState(0);
   const [fn,setFn]             = useState('');
-  const [fileObj,setFileObj]   = useState(null);
   const [prog,setProg]         = useState(0);
   const [msg,setMsg]           = useState('');
   const [novoMes,setNovoMes]   = useState('');
   const [nResult,setNResult]   = useState(null);
+  const [fileHeaders,setFileHeaders] = useState([]);
+  const [fileRows,setFileRows] = useState([]);
+  const [colMap,setColMap]     = useState({data:-1,projeto:-1,cliente:-1,nf:-1,valor:-1});
   const [confirmLimpar,setConfirmLimpar] = useState(false);
 
-  // Detecta se já há dados importados
   const temDados = fat && fat.length > 0;
-  const mesAtual = temDados ? (fat[0]?.data?.slice(3,10)||'') : '';  // MM/YYYY
-  const mesLabel = temDados
-    ? (() => { const d=fat[0]?.data||''; const [,m,a]=d.split('/'); return m&&a?`${['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(m)]}/${a}`:''; })()
-    : '';
-
   const nConf   = fat.filter(f=>f.conferido).length;
   const nNov    = fat.filter(f=>f.status==='novo').length;
   const nHist   = fat.filter(f=>f.status==='historico').length;
   const totalRep= fat.reduce((s,f)=>s+f.totalRepasse,0);
+  const mesLabel= mesAberto?.label||'';
 
   const detectMes = name => {
     const m = name.match(/(\d{2})(\d{4})|(\d{4})[_-](\d{2})/);
     if(m){const mm=m[1]||m[4],aa=m[2]||m[3];if(mm&&aa&&+mm>=1&&+mm<=12){const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];return {key:`${aa}-${mm.padStart(2,'0')}`,label:`${meses[+mm-1]}/${aa}`};}}
     return null;
   };
-  const handleFile = e => { const f=e.target?.files?.[0]||e.dataTransfer?.files?.[0]; if(f){setFn(f.name);setFileObj(f);const det=detectMes(f.name);if(det)setNovoMes(det.key);setStep(1);} };
 
-  const processar = () => {
-    if(!fileObj){setMsg('Nenhum arquivo selecionado.');return;}
+  const handleFile = e => {
+    const f=e.target?.files?.[0]||e.dataTransfer?.files?.[0];
+    if(!f)return;
+    setFn(f.name);
+    const det=detectMes(f.name);
+    if(det)setNovoMes(det.key);
     if(typeof XLSX==='undefined'){setMsg('Biblioteca XLSX nao carregada. Recarregue a pagina.');return;}
-    setStep(2);setProg(10);setMsg('Lendo arquivo...');
     const reader=new FileReader();
     reader.onload=(evt)=>{
       try{
         const wb=XLSX.read(evt.target.result,{type:'binary'});
-        setProg(30);setMsg('Identificando aba...');
         const sn=wb.SheetNames.find(n=>/receb|fat|plan/i.test(n))||wb.SheetNames[0];
         const ws=wb.Sheets[sn];
         const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-        setProg(50);setMsg('Mapeando colunas...');
         let hi=-1,hdrs=[];
         for(let i=0;i<Math.min(15,rows.length);i++){
-          const r=rows[i].map(c=>String(c||'').toLowerCase().trim());
-          if(r.some(c=>c==='projeto'||c.includes('valor recebido')||c.includes('cliente'))){hi=i;hdrs=r;break;}
+          const r=rows[i].map(c=>String(c||'').trim());
+          if(r.some(c=>/projeto|cliente|valor|recebido/i.test(c))){hi=i;hdrs=r;break;}
         }
-        if(hi<0){setMsg('Cabecalho nao encontrado. Verifique o layout do arquivo.');setStep(1);return;}
-        const ci=(...kw)=>hdrs.findIndex(h=>kw.some(k=>h.includes(k)));
-        const iProj=ci('projeto');
-        const iCli=ci('cliente','nome fantasia');
-        const iValor=ci('valor recebido','valor');
-        const iData=ci('data');
-        const iNF=ci('nf','nota');
-        const iSit=ci('situa');
-        setProg(70);setMsg('Calculando repasses...');
+        if(hi<0){setMsg('Cabecalho nao encontrado. Verifique o layout do arquivo.');return;}
+        setFileHeaders(hdrs);
+        setFileRows(rows.slice(hi+1));
+        const ci=(re)=>hdrs.findIndex(h=>re.test(h));
+        setColMap({
+          data:    ci(/data/i),
+          projeto: ci(/^projeto$/i),
+          cliente: ci(/^cliente$/i),
+          nf:      ci(/^nf$/i),
+          valor:   ci(/recebido|valor\s*\(?r/i),
+        });
+        setStep(1);
+      }catch(err){setMsg('Erro ao ler arquivo: '+err.message);}
+    };
+    reader.readAsBinaryString(f);
+  };
+
+  const processar = () => {
+    setStep(2);setProg(10);setMsg('Calculando repasses...');
+    setTimeout(()=>{
+      try{
+        const parseVal=(v)=>{
+          if(typeof v==='number')return v;
+          const s=String(v||'0').trim().replace(/[R$\s]/g,'');
+          if(s.includes(',')&&s.includes('.'))return parseFloat(s.replace(/\./g,'').replace(',','.'));
+          if(s.includes(','))return parseFloat(s.replace(',','.'));
+          return parseFloat(s)||0;
+        };
+        const fmtData=(v)=>{
+          if(!v)return '';
+          const s=String(v);
+          const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if(m)return `${m[3]}/${m[2]}/${m[1]}`;
+          return s.split(' ')[0];
+        };
         const newFat=[];
-        for(let i=hi+1;i<rows.length;i++){
-          const row=rows[i];
-          const projeto=String(row[iProj]||'').trim();
-          const rawVal=String(row[iValor]||'0').replace(/[R$\s.]/g,'').replace(',','.');
-          const liq=parseFloat(rawVal)||0;
+        for(const row of fileRows){
+          const projeto=colMap.projeto>=0?String(row[colMap.projeto]||'').trim():'';
+          const liq=colMap.valor>=0?parseVal(row[colMap.valor]):0;
           if(!projeto||liq<=0)continue;
-          const sit=iSit>=0?String(row[iSit]||'').toLowerCase().trim():'';
-          if(sit==='cancelado'||sit==='estornado')continue;
-          const cliente=iCli>=0?String(row[iCli]||'').trim():'';
-          const data=iData>=0?String(row[iData]||'').trim():'';
-          const nf=iNF>=0?String(row[iNF]||'').trim():'';
+          const cliente=colMap.cliente>=0?String(row[colMap.cliente]||'').trim():'';
+          const data=colMap.data>=0?fmtData(row[colMap.data]):'';
+          const nf=colMap.nf>=0?String(row[colMap.nf]||'').trim():'';
           const bruto=r2(liq/(1-RETIDOS));
           const ret=r2(bruto-liq);
           const projKey=Object.keys(cadastro).find(k=>
@@ -655,31 +674,19 @@ function Importar({setPage, fat, setFat, cadastro, mesAberto, setMesAberto, setM
           const status=parceiros.length>0?'historico':(projKey?'na':'novo');
           newFat.push({id:uid(),data,projeto,cliente,nf,bruto,liq,ret,parceiros,totalRepasse,status,conferido:false});
         }
-        setProg(95);setMsg('Atualizando base...');
+        setProg(90);
         const mk=novoMes||mesAberto?.key||'2026-06';
-        if(novoMes&&setMesAberto)setMesAberto({key:mk,label:getMesLabel(mk)});
-        if(setMesAtivo)setMesAtivo(mk);
-        setFat(newFat);
-        setNResult({
-          total:newFat.length,
-          comRepasse:newFat.filter(f=>f.status==='historico').length,
-          na:newFat.filter(f=>f.status==='na').length,
-          novo:newFat.filter(f=>f.status==='novo').length,
-          totalRep:r2(newFat.reduce((s,f)=>s+f.totalRepasse,0)),
-          mk
-        });
-        setProg(100);
-        setTimeout(()=>setStep(3),400);
+        if(setFatAndMes){setFatAndMes(newFat,mk);}
+        else{if(setMesAberto)setMesAberto({key:mk,label:getMesLabel(mk)});if(setMesAtivo)setMesAtivo(mk);setFat(newFat);}
+        setNResult({total:newFat.length,comRepasse:newFat.filter(f=>f.status==='historico').length,na:newFat.filter(f=>f.status==='na').length,novo:newFat.filter(f=>f.status==='novo').length,totalRep:r2(newFat.reduce((s,f)=>s+f.totalRepasse,0)),mk});
+        setProg(100);setTimeout(()=>setStep(3),300);
       }catch(err){setMsg('Erro: '+err.message);setStep(1);}
-    };
-    reader.readAsBinaryString(fileObj);
+    },100);
   };
 
   const limparEIniciar = () => {
-    if(novoMes){const[a,m]=novoMes.split('-');const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];const label=meses[+m-1]+'/'+a;if(setMesAberto){setMesAberto({key:novoMes,label});setMesAtivo&&setMesAtivo(novoMes);}}
-    setFat([]);
-    setConfirmLimpar(false);
-    setStep(0); setFn(''); setProg(0);
+    if(novoMes){const[a,m]=novoMes.split('-');const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];const label=meses[+m-1]+'/'+a;if(setMesAberto){setMesAberto({key:novoMes,label});if(setMesAtivo)setMesAtivo(novoMes);}}
+    setFat([]);setConfirmLimpar(false);setStep(0);setFn('');setProg(0);
   };
 
   // ── Tela de bloqueio quando já há dados ──
@@ -687,93 +694,54 @@ function Importar({setPage, fat, setFat, cadastro, mesAberto, setMesAberto, setM
     <div style={{maxWidth:720}}>
       <div className="ttl">Importar Planilha de Faturamento</div>
       <div className="sub">Gerencie meses de apuração</div>
-
-      {/* Status do mês atual */}
       <div className="card card-p mb4" style={{borderColor:'rgba(99,102,241,.4)'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12}}>
           <div>
-            <div style={{color:'#818cf8',fontSize:11,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Mês em apuração</div>
+            <div style={{color:'#818cf8',fontSize:11,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Mes em apuração</div>
             <div style={{fontSize:20,fontWeight:700}}>{mesLabel||'Maio/2026'}</div>
             <div style={{color:'#64748b',fontSize:12,marginTop:2}}>{fat.length} recebimentos importados</div>
           </div>
           <div className="g4" style={{gap:20}}>
-            {[
-              {l:'Com repasse', v:nHist, c:'cg'},
-              {l:'⚠ Não cad.', v:nNov,  c:'ca'},
-              {l:'Conferidos',  v:`${nConf}/${fat.length}`, c:'cb'},
-              {l:'Total Rep.',  v:fmt(totalRep), c:'ca'},
-            ].map((c,i)=>(
-              <div key={i} className="tc">
-                <div style={{fontSize:18,fontWeight:700}} className={c.c}>{c.v}</div>
-                <div style={{color:'#64748b',fontSize:11}}>{c.l}</div>
-              </div>
+            {[{l:'Com repasse',v:nHist,c:'cg'},{l:'Nao cad.',v:nNov,c:'ca'},{l:'Conferidos',v:`${nConf}/${fat.length}`,c:'cb'},{l:'Total Rep.',v:fmt(totalRep),c:'ca'}].map((c,i)=>(
+              <div key={i} className="tc"><div style={{fontSize:18,fontWeight:700}} className={c.c}>{c.v}</div><div style={{color:'#64748b',fontSize:11}}>{c.l}</div></div>
             ))}
           </div>
         </div>
       </div>
-
-      {/* Ações do mês atual */}
       <div className="g2 mb6">
         <div className="card card-p" style={{cursor:'pointer',borderColor:'rgba(99,102,241,.25)'}} onClick={()=>setPage('conferencia')}>
-          <div style={{fontSize:24,marginBottom:8}}>✅</div>
-          <div className="fw6 mb2">Continuar Conferência</div>
-          <div style={{color:'#64748b',fontSize:13}}>Retornar para revisar os repasses do mês em andamento.</div>
+          <div style={{fontSize:24,marginBottom:8}}>✅</div><div className="fw6 mb2">Continuar Conferencia</div>
+          <div style={{color:'#64748b',fontSize:13}}>Retornar para revisar os repasses do mes em andamento.</div>
         </div>
         <div className="card card-p" style={{cursor:'pointer',borderColor:'rgba(99,102,241,.25)'}} onClick={()=>setPage('fechamento')}>
-          <div style={{fontSize:24,marginBottom:8}}>🔒</div>
-          <div className="fw6 mb2">Ir para Fechamento</div>
-          <div style={{color:'#64748b',fontSize:13}}>Encerrar a apuração do mês e gerar o relatório final.</div>
+          <div style={{fontSize:24,marginBottom:8}}>🔒</div><div className="fw6 mb2">Ir para Fechamento</div>
+          <div style={{color:'#64748b',fontSize:13}}>Encerrar a apuração do mes e gerar o relatorio final.</div>
         </div>
       </div>
-
-      <div className="divider"/>
-
-      {/* Novo mês */}
+      <hr className="divider"/>
       <div style={{marginTop:20}}>
-        <div className="fw6 mb2" style={{fontSize:14}}>Iniciar novo mês de apuração</div>
-        <div style={{color:'#64748b',fontSize:13,marginBottom:14,lineHeight:1.6}}>
-          Para importar a planilha de <strong>Junho, Julho</strong> etc., é necessário limpar os dados do mês atual. O Cadastro de Parceiros e o histórico de fechamentos são preservados.
-        </div>
+        <div className="fw6 mb2" style={{fontSize:14}}>Iniciar novo mes de apuração</div>
+        <div style={{color:'#64748b',fontSize:13,marginBottom:14,lineHeight:1.6}}>Para importar um novo mes, e necessario limpar os dados atuais. Cadastro de Parceiros e historico de fechamentos sao preservados.</div>
         <div style={{background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.25)',borderRadius:10,padding:'14px 16px',marginBottom:16}}>
-          <div style={{color:'#ef4444',fontWeight:600,fontSize:13,marginBottom:6}}>⚠️ Atenção antes de limpar</div>
-          <div style={{color:'#94a3b8',fontSize:13,lineHeight:1.6}}>
-            Certifique-se de ter feito o <strong style={{color:'#e2e8f0'}}>Fechamento de {mesLabel||'Maio/2026'}</strong> antes de continuar. Os dados atuais serão removidos da memória.
-          </div>
+          <div style={{color:'#ef4444',fontWeight:600,fontSize:13,marginBottom:6}}>Atencao antes de limpar</div>
+          <div style={{color:'#94a3b8',fontSize:13,lineHeight:1.6}}>Certifique-se de ter feito o <strong style={{color:'#e2e8f0'}}>Fechamento de {mesLabel}</strong> antes de continuar.</div>
         </div>
-        <div style={{marginBottom:16}}>
-          <label style={{marginBottom:6}}>Mês de referência do novo arquivo</label>
-          <input type="month" value={novoMes} onChange={e=>setNovoMes(e.target.value)} style={{width:220}}/>
-        </div>
-        <button className="btn btn-x" onClick={()=>setConfirmLimpar(true)} disabled={!novoMes}>
-          🗑️ Limpar base atual e iniciar {novoMes ? new Date(novoMes+'-01').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) : 'novo mês'}
-        </button>
+        <div style={{marginBottom:16}}><label style={{marginBottom:6}}>Mes de referencia do novo arquivo</label><input type="month" value={novoMes} onChange={e=>setNovoMes(e.target.value)} style={{width:220}}/></div>
+        <button className="btn btn-x" onClick={()=>setConfirmLimpar(true)} disabled={!novoMes}>Limpar base atual e iniciar {novoMes?getMesLabel(novoMes):'novo mes'}</button>
       </div>
-
-      {/* Modal de confirmação */}
       <Modal open={confirmLimpar} onClose={()=>setConfirmLimpar(false)} title="Confirmar limpeza da base" width={480}>
-        <div style={{color:'#94a3b8',fontSize:13,marginBottom:16,lineHeight:1.6}}>
-          Isso irá <strong style={{color:'#ef4444'}}>remover todos os {fat.length} lançamentos</strong> do mês atual da memória.<br/><br/>
-          ✅ Serão preservados: Cadastro de Parceiros, lista de parceiros e histórico de fechamentos.<br/>
-          ❌ Serão removidos: Lançamentos, repasses calculados e tiques de conferência do mês atual.
-        </div>
-        <div style={{background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',borderRadius:8,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#ef4444'}}>
-          Esta ação não pode ser desfeita. Confirme que o fechamento de <strong>{mesLabel||'Maio/2026'}</strong> já foi realizado.
-        </div>
-        <div className="flex" style={{gap:10}}>
-          <button className="btn btn-x" onClick={limparEIniciar}>✓ Sim, limpar e iniciar novo mês</button>
-          <button className="btn btn-s" onClick={()=>setConfirmLimpar(false)}>Cancelar</button>
-        </div>
+        <div style={{color:'#94a3b8',fontSize:13,marginBottom:16,lineHeight:1.6}}>Isso ira <strong style={{color:'#ef4444'}}>remover todos os {fat.length} lancamentos</strong> do mes atual.<br/><br/>Cadastro de Parceiros e historico de fechamentos serao preservados.</div>
+        <div className="flex" style={{gap:10}}><button className="btn btn-x" onClick={limparEIniciar}>Confirmar Limpeza</button><button className="btn btn-s" onClick={()=>setConfirmLimpar(false)}>Cancelar</button></div>
       </Modal>
     </div>
   );
 
-  // ── Fluxo normal de importação (sem dados ou após limpeza) ──
   return (
     <div style={{maxWidth:720}}>
       <div className="ttl">Importar Planilha de Faturamento</div>
       <div className="sub">Layout: pivot.xlsx · Aba: Recebimentos · Parceiros via Cadastro mestre</div>
       <div className="flex ac mb6" style={{gap:6}}>
-        {['Upload','Mapeamento','Processamento','Resultado'].map((s,i)=>(
+        {['Upload','Mapeamento de Colunas','Processamento','Resultado'].map((s,i)=>(
           <React.Fragment key={i}>
             <div style={{width:24,height:24,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,background:step>=i?'#6366f1':'#334155',color:step>=i?'#fff':'#64748b',flexShrink:0}}>{i+1}</div>
             <span style={{fontSize:13,color:step>=i?'#a5b4fc':'#64748b'}}>{s}</span>
@@ -781,42 +749,69 @@ function Importar({setPage, fat, setFat, cadastro, mesAberto, setMesAberto, setM
           </React.Fragment>
         ))}
       </div>
+
       {step===0&&(
         <div className="card drop" onDragOver={e=>e.preventDefault()} onDrop={handleFile} onClick={()=>document.getElementById('fi').click()}>
           <div style={{fontSize:42,marginBottom:12}}>📊</div>
           <div className="fw6 mb2" style={{fontSize:17}}>Arraste o arquivo aqui</div>
           <div style={{color:'#64748b',marginBottom:12,fontSize:13}}>ou clique para selecionar · .xlsx · .xls</div>
-          <div><span className="tag">pivot.xlsx</span><span className="tag">Faturamento_062026.xlsx</span></div>
+          <div><span className="tag">pivot.xlsx</span><span className="tag">recebidos-062026.xlsx</span></div>
           <input id="fi" type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={handleFile}/>
+          {msg&&<div style={{color:'#ef4444',fontSize:13,marginTop:10}}>{msg}</div>}
         </div>
       )}
+
       {step===1&&(
         <div>
           <div className="card card-p flex ac mb4" style={{gap:12,borderColor:'#10b981'}}>
             <span style={{fontSize:20}}>✅</span>
-            <div><div className="fw6">{fn}</div><div style={{color:'#64748b',fontSize:13}}>Arquivo recebido · Mês de referência: {novoMes?getMesLabel(novoMes):'detectar automaticamente'}</div></div>
+            <div><div className="fw6">{fn}</div><div style={{color:'#64748b',fontSize:13}}>Mes de referencia: {novoMes?getMesLabel(novoMes):'detectar automaticamente'} · {fileRows.length} linhas detectadas</div></div>
           </div>
-          <div className="aibox">
-            <div className="ait">🤖 Mapeamento automático</div>
-            <div className="aitxt">Parceiros buscados no <strong style={{color:'#e2e8f0'}}>Cadastro de Parceiros</strong> por nome de Projeto. Múltiplos parceiros por projeto suportados.</div>
+          <div className="card card-p mb4">
+            <div className="fw6 mb3" style={{fontSize:13,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.06em'}}>Mapeamento de Colunas (De / Para)</div>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:14}}>Selecione qual coluna da planilha corresponde a cada campo do sistema.</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              {[
+                {label:'Data do recebimento',key:'data',req:false},
+                {label:'Projeto (obrigatorio)',key:'projeto',req:true},
+                {label:'Cliente',key:'cliente',req:false},
+                {label:'NF / Nota Fiscal',key:'nf',req:false},
+                {label:'Valor Recebido (obrigatorio)',key:'valor',req:true},
+              ].map(({label,key,req})=>(
+                <div key={key} className="fg">
+                  <label style={{color:req?'#e2e8f0':'#94a3b8'}}>{label}</label>
+                  <select value={colMap[key]} onChange={e=>setColMap(m=>({...m,[key]:+e.target.value}))}>
+                    <option value={-1}>— ignorar —</option>
+                    {fileHeaders.map((h,i)=>(<option key={i} value={i}>{h||`Coluna ${i}`}</option>))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            {fileHeaders.length>0&&(
+              <div style={{marginTop:12,padding:'10px 14px',background:'#0f172a',borderRadius:8,fontSize:12,color:'#64748b'}}>
+                <div style={{fontWeight:600,color:'#94a3b8',marginBottom:4}}>Colunas encontradas no arquivo:</div>
+                <div>{fileHeaders.map((h,i)=><span key={i} className="tag" style={{marginBottom:4}}>{i}: {h||'(vazia)'}</span>)}</div>
+              </div>
+            )}
           </div>
           <div className="flex" style={{gap:10}}>
-            <button className="btn btn-p" onClick={processar}>Processar</button>
-            <button className="btn btn-s" onClick={()=>setStep(0)}>Voltar</button>
+            <button className="btn btn-p" onClick={processar} disabled={colMap.projeto<0||colMap.valor<0}>Processar</button>
+            <button className="btn btn-s" onClick={()=>{setStep(0);setFn('');setMsg('');}}>Voltar</button>
           </div>
         </div>
       )}
+
       {step===2&&(
         <div className="card card-p tc">
           <div style={{fontSize:42,marginBottom:14}}>🤖</div>
           <div className="fw6 mb2" style={{fontSize:16}}>Processando...</div>
-          <div style={{color:'#64748b',marginBottom:16,fontSize:13,minHeight:18}}>{msg}</div>
-          <div style={{height:6,background:'#334155',borderRadius:99,overflow:'hidden',maxWidth:380,margin:'0 auto'}}>
-            <div style={{height:'100%',background:'linear-gradient(90deg,#6366f1,#8b5cf6)',borderRadius:99,transition:'width .5s',width:`${prog}%`}}/>
+          <div style={{color:'#64748b',fontSize:13,marginBottom:16}}>{msg||'Aguarde...'}</div>
+          <div style={{background:'#0f172a',borderRadius:99,height:6,overflow:'hidden',maxWidth:320,margin:'0 auto'}}>
+            <div style={{height:6,borderRadius:99,background:'linear-gradient(90deg,#6366f1,#818cf8)',width:`${prog}%`,transition:'width .3s'}}/>
           </div>
-          <div style={{color:'#6366f1',fontWeight:700,marginTop:8}}>{prog}%</div>
         </div>
       )}
+
       {step===3&&nResult&&(
         <div>
           <div className="card card-p mb4" style={{borderColor:'#10b981'}}>
@@ -829,11 +824,11 @@ function Importar({setPage, fat, setFat, cadastro, mesAberto, setMesAberto, setM
           </div>
           <div className="aibox">
             <div className="ait">Resumo</div>
-            <div className="aitxt">Repasses calculados: <strong style={{color:'#10b981'}}>{fmt(nResult.totalRep)}</strong>{nResult.novo>0&&` · ${nResult.novo} projeto(s) aguardam classificacao manual.`}</div>
+            <div className="aitxt">Repasses calculados: <strong style={{color:'#10b981'}}>{fmt(nResult.totalRep)}</strong>{nResult.novo>0?` · ${nResult.novo} projeto(s) aguardam classificacao manual.`:' · Todos os projetos mapeados.'}</div>
           </div>
           <div className="flex" style={{gap:10}}>
-            <button className="btn btn-p" onClick={()=>{if(setMesAtivo&&nResult.mk)setMesAtivo(nResult.mk);setPage('conferencia');}}>Ver Conferencia</button>
-            {nResult.novo>0&&<button className="btn btn-s" onClick={()=>{if(setMesAtivo&&nResult.mk)setMesAtivo(nResult.mk);setPage('sem-parceiro');}}>Nao Cadastrados ({nResult.novo})</button>}
+            <button className="btn btn-p" onClick={()=>setPage('conferencia')}>Ver Conferencia</button>
+            {nResult.novo>0&&<button className="btn btn-s" onClick={()=>setPage('sem-parceiro')}>Nao Cadastrados ({nResult.novo})</button>}
           </div>
         </div>
       )}
@@ -1642,6 +1637,7 @@ function App() {
  const setTodosParceiros=v=>{setTodosParceirosRaw(p=>{const next=typeof v==='function'?v(p):v;LS.set('pt_parceiros',next);return next;});};
  const setCadastro=v=>{setCadastroRaw(p=>{const next=typeof v==='function'?v(p):v;LS.set('pt_cadastro',next);return next;});};
  const setFat=v=>{setFatRaw(p=>{const next=typeof v==='function'?v(p):v;LS.set('pt_fat_'+mesAberto.key,next);setSavedAt(now());return next;});};
+ const setFatAndMes=(fatData,mk)=>{const lb=getMesLabel(mk);setFatRaw(fatData);LS.set('pt_fat_'+mk,fatData);setSavedAt(now());setMesAberto({key:mk,label:lb});setMesAtivo(mk);};
  const getFatForMes=mk=>mk===mesAberto.key?fat:(fechamentos.find(f=>f.mesKey===mk)?.fat||[]);
  const setFechamentos=v=>{setFechamentosRaw(p=>{const next=typeof v==='function'?v(p):v;LS.set('pt_fechamentos',next);return next;});};
 
@@ -1649,7 +1645,7 @@ function App() {
 
  const pages={
  dashboard:<Dashboard fat={fat} fechamentos={fechamentos} setPage={setPage}/>,
- importar:<Importar setPage={setPage} fat={fat} setFat={setFat} cadastro={cadastro} mesAberto={mesAberto} setMesAberto={setMesAberto} setMesAtivo={setMesAtivo}/>,
+ importar:<Importar setPage={setPage} fat={fat} setFat={setFat} setFatAndMes={setFatAndMes} cadastro={cadastro} mesAberto={mesAberto} setMesAberto={setMesAberto} setMesAtivo={setMesAtivo}/>,
  conferencia:<Conferencia fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} setPage={setPage} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  'sem-parceiro':<SemParceiro fat={fat} setFat={setFat} todosParceiros={todosParceiros} setCadastro={setCadastro} mesAtivo={mesAtivo} setMesAtivo={setMesAtivo} mesAberto={mesAberto} fechamentos={fechamentos} getFatForMes={getFatForMes}/>,
  parceiros:<Parceiros todosParceiros={todosParceiros} setTodosParceiros={setTodosParceiros} cadastro={cadastro} setCadastro={setCadastro} fat={fat}/>,
