@@ -1605,10 +1605,10 @@ function Relatorios({fat: fatProp,mesAtivo,setMesAtivo,mesAberto,fechamentos,get
       {tab==='parceiros'&&(
         <div className="card oa">
           <table>
-            <thead><tr><th>#</th><th>Parceiro</th><th className="tc">Projetos</th><th className="tr">Repasse</th><th className="tr">% s/ Bruto</th></tr></thead>
+            <thead><tr><th>#</th><th>Parceiro</th><th className="tc">Projetos</th><th className="tr">Repasse</th></tr></thead>
             <tbody>
-              {parcRows.map((p,i)=>(<tr key={i}><td style={{color:'#475569'}}>{i+1}</td><td className="fw6">{p.nome}</td><td className="tc" style={{color:'#94a3b8'}}>{p.projetos}</td><td className="tr ca fw6">{fmt(p.repasse)}</td><td className="tr" style={{color:'#64748b'}}>{((p.repasse/TOTAL_BRUTO)*100).toFixed(2)}%</td></tr>))}
-              <tr style={{borderTop:'2px solid #334155',background:'rgba(99,102,241,.04)'}}><td colSpan={3} className="fw7">TOTAL</td><td className="tr fw7 ca">{fmt(totalRep)}</td><td className="tr" style={{color:'#64748b'}}>{((totalRep/TOTAL_BRUTO)*100).toFixed(2)}%</td></tr>
+              {parcRows.filter(p=>p.repasse>0).map((p,i)=>(<tr key={i}><td style={{color:'#475569'}}>{i+1}</td><td className="fw6">{p.nome}</td><td className="tc" style={{color:'#94a3b8'}}>{p.projetos}</td><td className="tr ca fw6">{fmt(p.repasse)}</td></tr>))}
+              <tr style={{borderTop:'2px solid #334155',background:'rgba(99,102,241,.04)'}}><td colSpan={3} className="fw7">TOTAL</td><td className="tr fw7 ca">{fmt(totalRep)}</td></tr>
             </tbody>
           </table>
         </div>
@@ -1687,4 +1687,4 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
-</html>
+</html>                                                                                                                                                                                                    
