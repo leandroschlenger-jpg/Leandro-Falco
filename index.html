@@ -121,7 +121,7 @@ const { useState, useRef, useEffect, useCallback } = React;
 
 /* ── helpers ── */
 const fmt   = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
-const fmtP  = v => v > 0 ? `${(v*100).toFixed(4).replace(/\.?0+$/,'')}%` : '—';
+const fmtP  = v => v > 0 ? `${(v*100).toFixed(5).replace('.',',')}%` : '—';
 const RETIDOS = 0.0615; // 6,15% — retidos já descontados no "liq" (Recebido da planilha)
 const TRIB    = 0.1453; // 14,53% — tributos aplicados sobre a base escolhida
 // O campo "liq" JÁ está líquido de retidos.
@@ -1687,4 +1687,4 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
-</html>                                                                                                                                                                                                    
+</html>                                                                                                                                                                                                        
